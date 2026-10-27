@@ -1,0 +1,188 @@
+/* HTGAA CFPS Selection Coverage Analysis — dependency-free visualization.
+ * Public source, authenticated private analysis input, read-only and no model API.
+ * Scientific contributions are documented in docs/CONTRIBUTIONS.md.
+ */
+(() => {
+  'use strict';
+  const N = 'http://www.w3.org/2000/svg';
+  const TARGETS = ['sfGFP', 'PETase', 'Reteplase'];
+  const MODES = [
+    ['gp_model_baseline:facility', 'Original GP-model baseline'],
+    ['hybrid:facility', 'Hybrid · facility'],
+    ['hybrid:maximin', 'Hybrid · maximin'],
+    ['model_free:facility', 'Model-free · facility'],
+    ['model_free:maximin', 'Model-free · maximin']
+  ];
+  function el(tag, className, text, parent) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function svg(tag, attrs, parent) {
+    const node = document.createElementNS(N, tag);
+    for (const [key, val] of Object.entries(attrs)) node.setAttribute(key, String(val));
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function round(x, digits=3) { return Number.isFinite(x) ? Number(x).toFixed(digits) : '—'; }
+  function pct(x) { return Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—'; }
+  function heading(parent, title, sub) {
+    const wrap = el('div', 'mf-heading', null, parent);
+    el('h2', '', title, wrap);
+    if (sub) el('p', '', sub, wrap);
+    return wrap;
+  }
+  function downloadCSV(rows, filename) {
+    const lines = ['id'];
+    for (const id of rows) lines.push('"' + String(id).replaceAll('"', '""') + '"');
+    const file = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+    const href = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = href; link.download = filename; document.body.append(link);
+    link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(href), 1000);
+  }
+  function renderPlot(parent, result) {
+    heading(parent, 'Formulation-space projection', 'PCA of volume-scaled reagent vectors; projection is descriptive only. Selection distances use the full feature space.');
+    const data = result.visual_rows;
+    const w = 850, h = 360, pad = 35;
+    const plot = svg('svg', { viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': 'PCA scatterplot of all distinct submitted recipes', class: 'mf-plot' }, parent);
+    const xs = data.map(d => d.point[0]), ys = data.map(d => d.point[1]);
+    let loX = Math.min(...xs), hiX = Math.max(...xs), loY = Math.min(...ys), hiY = Math.max(...ys);
+    if (hiX - loX < 1e-9) { loX -= 1; hiX += 1; }
+    if (hiY - loY < 1e-9) { loY -= 1; hiY += 1; }
+    const x = a => pad + (a-loX) / (hiX-loX) * (w-2*pad);
+    const y = a => h-pad - (a-loY) / (hiY-loY) * (h-2*pad);
+    const line = (x1,y1,x2,y2) => svg('line',{x1,y1,x2,y2,stroke:'#627a93','stroke-opacity':'.40'},plot);
+    line(pad,h-pad,w-pad,h-pad); line(pad,pad,pad,h-pad);
+    for (let i=1;i<5;i++) {
+      const xp=pad+(w-2*pad)*i/5, yp=pad+(h-2*pad)*i/5;
+      svg('line',{x1:xp,y1:pad,x2:xp,y2:h-pad,stroke:'#8aa1ba','stroke-opacity':'.11'},plot);
+      svg('line',{x1:pad,y1:yp,x2:w-pad,y2:yp,stroke:'#8aa1ba','stroke-opacity':'.11'},plot);
+    }
+    // Make highlighted points last so they remain selectable.
+    for (const r of [...data.filter(r=>!r.selected),...data.filter(r=>r.selected)]) {
+      const c=svg('circle',{cx:x(r.point[0]),cy:y(r.point[1]),r:r.selected?4.1:2.55,
+        fill:r.externalOverlap?'#efb45c':r.selected?'#5bc6ee':'#647d99',
+        'fill-opacity':r.selected?'.95':'.46',stroke:r.selected?'#d4f0ff':'none','stroke-width':'.7',
+        'data-design-id':r.id},plot);
+      svg('title',{},c).textContent = `${r.id} • ${r.selected?'selected':'not selected'}${r.externalOverlap?' • external exact overlap':''}${r.externalNearestDistance !== null && r.externalNearestDistance !== undefined?' • nearest external distance '+r.externalNearestDistance:''}`;
+      c.addEventListener('click',()=>{
+        const area=parent.querySelector('.mf-focus');
+        if(area) area.textContent = `Recipe ${r.id} · ${r.selected?'selected':'unselected'} · ${r.groups.join(', ')||'no GP group'}${r.externalOverlap?' · exact external overlap':''}`;
+      });
+    }
+    const focus=el('p','mf-focus','Select a point to inspect its submitted ID and coverage status.',parent);
+    const legend=el('div','mf-legend',null,parent);
+    [['#5bc6ee','Selected'],['#647d99','Not selected'],['#efb45c','External exact overlap']].forEach(([color,label])=>{
+      const t=el('span','',null,legend); const dot=el('i','',null,t);dot.style.background=color;el('span','',label,t);
+    });
+  }
+  function renderComparison(parent, output) {
+    heading(parent,'Compare selection strategies','Exactly the same submitted candidate population, with distinct objective functions. Values are not expected yields.');
+    const tbl=el('table','mf-table',null,parent);const tr=el('tr','',null,el('thead','',null,tbl));
+    for (const h of ['Strategy','Unique IDs','Mean distance ↓','90th pct distance ↓','Factor bins ↑','Factor pairs ↑','Exact one-factor pairs'])el('th','',h,tr);
+    const body=el('tbody','',null,tbl);
+    for (const [key,name] of MODES) {
+      const x=output[key];if(!x)continue;
+      const row=el('tr','',null,body);
+      [name,x.n_selected,round(x.distance.mean),round(x.distance.p90),pct(x.factor_bin_coverage_mean),pct(x.pair_bin_coverage_mean),x.exact_selected_contrasts.unique_exact_pairs].forEach(v=>el('td','',v,row));
+    }
+    el('p','mf-fine','Distance uses per-reagent normalized volumes and optional presence; sample density and intentional replicas are not estimates of independent experimental information.',parent);
+  }
+  function renderFactors(parent,result) {
+    heading(parent,'Ingredient-level coverage','Bins are based on distinct positive dispensing levels in the existing candidate pool. Zero is a separate bin.');
+    const arr=Object.entries(result.factor_bins).sort((a,b)=>a[1].coverage_fraction-b[1].coverage_fraction || a[0].localeCompare(b[0]));
+    const grid=el('div','mf-factor-grid',null,parent);
+    for(const [name,item] of arr) {
+      const card=el('div','mf-factor',null,grid);
+      el('strong','',name.replaceAll('_',' '),card);
+      const stat=el('span','mf-muted',`${item.represented_bins}/${item.possible_bins} bins · ${pct(item.coverage_fraction)}`,card);
+      const track=el('div','mf-track',null,card);const bar=el('div','mf-progress',null,track);
+      bar.style.width=pct(item.coverage_fraction);
+    }
+  }
+  function renderSweeps(parent,result) {
+    heading(parent,'Exact single-factor sweeps','Detected directly from existing recipes. Additional slots are reserved before geometric coverage selection.');
+    el('p','mf-muted',`${result.sweep_reserved_count} newly reserved formulation slots; ${result.selected_sweeps.length} selected sweep families; ${result.exact_selected_contrasts.unique_exact_pairs} exact selected contrasts (pairs may overlap families).`,parent);
+    const tbl=el('table','mf-table',null,parent);const header=el('tr','',null,el('thead','',null,tbl));
+    ['Factor','Selected levels (nL)','New slots','Example IDs'].forEach(s=>el('th','',s,header));
+    const tbody=el('tbody','',null,tbl);
+    result.selected_sweeps.slice(0,40).forEach(s=>{
+      const row=el('tr','',null,tbody);
+      [s.factor,s.levels_nL.join(', '),s.n_new,s.ids.slice(0,3).join(' · ')].forEach(v=>el('td','',v,row));
+    });
+    if (!result.selected_sweeps.length)el('p','mf-muted','No additional exact sweep families allocated in this strategy.',parent);
+  }
+  function renderSelected(parent,result) {
+    heading(parent,'Selected existing formulations','All IDs are original participant submissions. Multiple IDs may represent an identical physical formulation.');
+    const toolbar=el('div','mf-toolbar',null,parent);
+    el('p','mf-muted',`${result.selected_ids.length} unique representatives · ${result.selected_all_submission_ids.length} associated submitted records`,toolbar);
+    const button=el('button','mf-btn','Export selected unique IDs as CSV',toolbar);
+    button.addEventListener('click',()=>downloadCSV(result.selected_ids,`${result.target}_${result.mode}_${result.config.objective}_selected.csv`));
+    const list=el('div','mf-selected-list',null,parent);
+    result.selected_ids.slice(0,80).forEach(id=>el('code','mf-id',id,list));
+    if (result.selected_ids.length>80)el('p','mf-muted',`Showing 80 of ${result.selected_ids.length}. Export CSV for complete IDs.`,parent);
+  }
+  function render(root,payload,target,mode) {
+    root.replaceChildren();
+    if (!payload?.targets?.[target]?.[mode]) {
+      const fallback=MODES.map(([key])=>key).find(k=>payload?.targets?.[target]?.[k]);
+      if(fallback){render(root,payload,target,fallback);return;}
+      el('p','mf-alert','No analysis results for this target. Check the source manifest.',root);return;
+    }
+    const result=payload.targets[target][mode];
+    const title=el('header','mf-header',null,root);
+    el('div','mf-eyebrow','HTGAA · PRE-EXPERIMENTAL DESIGN SELECTION',title);
+    el('h1','', 'CFPS Selection Coverage Analysis',title);
+    const origin = payload.provenance?.input_source || 'published_snapshot';
+    el('p','mf-muted',`Pre-experimental formulation-space analysis · Input source: ${origin}. Only strategies supported by this source are shown.`,title);
+    el('p','mf-warning','PRELIMINARY · Capacity and mandatory controls must be verified before any final submission.',title);
+    const controls=el('div','mf-controls',null,root);
+    const tSelect=el('select','mf-select',null,controls);
+    TARGETS.forEach(t=>{const opt=el('option','',t,tSelect);opt.value=t;opt.selected=t===target;});
+    const mSelect=el('select','mf-select',null,controls);
+    for(const [k,n] of MODES){if(!payload.targets[target][k])continue;const opt=el('option','',n,mSelect);opt.value=k;opt.selected=k===mode;}
+    tSelect.addEventListener('change',()=>{const possibilities=MODES.map(([k])=>k).filter(k=>payload.targets[tSelect.value]?.[k]);render(root,payload,tSelect.value,possibilities.includes(mSelect.value)?mSelect.value:possibilities[0]);});
+    mSelect.addEventListener('change',()=>render(root,payload,tSelect.value,mSelect.value));
+    const cards=el('div','mf-cards',null,root);
+    [
+      ['Unique selected',`${result.n_selected} / ${result.config.quota}`],
+      ['Candidate distance (mean)',round(result.distance.mean)],
+      ['Ingredient-bin coverage',pct(result.factor_bin_coverage_mean)],
+      ['Factor-pair coverage',pct(result.pair_bin_coverage_mean)],
+      ['Exact one-factor pairs',String(result.exact_selected_contrasts.unique_exact_pairs)],
+      ['External overlaps selected',String(result.external_overlaps_selected)],
+      ['Near external (heuristic)',String(result.near_external_selected_count)]
+    ].forEach(([name,value])=>{const card=el('div','mf-stat',null,cards);el('span','mf-muted',name,card);el('strong','',value,card);});
+    const comparison=el('section','mf-panel',null,root);renderComparison(comparison,payload.targets[target]);
+    const plot=el('section','mf-panel',null,root);renderPlot(plot,result);
+    const factors=el('section','mf-panel',null,root);renderFactors(factors,result);
+    const sweeps=el('section','mf-panel',null,root);renderSweeps(sweeps,result);
+    const selected=el('section','mf-panel',null,root);renderSelected(selected,result);
+    el('p','mf-footer',`Selection analysis v${payload.algorithm_version} · Input SHA-256 recorded in protected manifest · Read-only · PCA is descriptive, not measured activity, yield, or information gain.`,root);
+  }
+  async function mount(root,{dataUrl}={}) {
+    if (!root)throw new Error('Container required');
+    root.textContent='Loading authenticated CFPS selection analysis…';
+    if(!dataUrl){
+      const prompt=el('div','mf-panel',null,root);
+      el('p','', 'Choose a local private model_free_analysis.json to inspect; this page does not upload it.',prompt);
+      const input=el('input','mf-file',null,prompt);input.type='file';input.accept='.json,application/json';
+      input.addEventListener('change',async()=>{
+        try{const json=JSON.parse(await input.files[0].text());render(root,json,'sfGFP','model_free:facility');}
+        catch(e){root.textContent=`Unable to parse analysis JSON: ${String(e.message)}`;}
+      });
+      return;
+    }
+    try{
+      const response=await fetch(dataUrl,{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw new Error(`HTTP ${response.status} from protected analysis endpoint`);
+      const payload=await response.json();
+      if(payload?.schema!=='cfps-model-free-visualization/v1')throw new Error('Unexpected dataset schema');
+      render(root,payload,'sfGFP','model_free:facility');
+    }catch(e){root.textContent=`Cannot load private analysis: ${String(e.message)}`;}
+  }
+  window.CFPSModelFreeView={mount,render};
+})();

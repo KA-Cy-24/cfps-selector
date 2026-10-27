@@ -1,0 +1,39 @@
+{
+  "schema": "cfps-decision-release-verification/v1",
+  "source_bundle_name": "HTGAA_CFPS_Publication_Ready_Framework.zip",
+  "release_type": "SOURCE ONLY; NO PRIVATE PARTICIPANT DATA",
+  "automated_python_tests": "64 PASSED (including 18 new decision tests and parity test; checked separately)",
+  "node_syntax": "PASS",
+  "python_js_real_dataset_selected_id_parity": "18/18 protein/configuration comparisons PASS",
+  "self_contained_colab_headless_execution": "PASS; private results ZIP and interactive HTML generated",
+  "live_pocketbase_authentication": "NOT TESTED (requires user credentials)",
+  "authenticated_sveltekit_production_build": "NOT TESTED (requires current repository checkout)",
+  "browser_screenshot_review": "NOT COMPLETED in this container (Chromium headless timed out)",
+  "original_export_group_structural_integrity": "PASS for all three target proteins",
+  "independent_gp_cluster_equivalence": "NOT ESTABLISHED (independent correlations differ from GP shared-error links)",
+  "groups_by_protein": {
+    "sfGFP": 86,
+    "PETase": 79,
+    "Reteplase": 54
+  },
+  "private_data_in_source_bundle": false,
+  "confidential_client_secret_references": 0,
+  "experimental_well_layout": {
+    "n_rows": 16,
+    "n_columns": 24,
+    "reserved_columns": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "experimental_wells": 320,
+    "example_replicate_factor": 4,
+    "unique_formulations_per_plate_at_r4": 80
+  },
+  "notes": [
+    "Final actual experimental protocol still requires Ginkgo/operator sign-off",
+    "Source-level batch IDs absent from published GP export; PocketBase provides explicit metadata when present",
+    "Preview well positions are not approved robot-execution coordinates; execution may randomize"
+  ]
+}

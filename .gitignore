@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+# Real CFPS snapshots and row-level/private analysis outputs must not enter Git.
+cfps_private_snapshots/
+*private.csv
+*private.json
+*private.png

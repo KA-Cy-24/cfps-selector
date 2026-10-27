@@ -1,0 +1,7 @@
+numpy>=1.24,<3
+pandas>=2.0,<4
+scipy>=1.10,<2
+matplotlib>=3.7,<4
+requests>=2.28,<3
+nbformat>=5.7,<6  # build script only
+pytest>=8,<10

@@ -1,0 +1,98 @@
+HTGAA CFPS DECISION LAB — COPY / MERGE / COMMIT GUIDE
+=================================================
+
+The ZIP top-level directory is cfps_selection_research/. It is a source-only bundle.
+DO NOT commit any private JSON, raw participant snapshot, Colab results ZIP,
+private HTML containing participant data, or execution credentials.
+
+From a terminal after unzipping HTGAA_CFPS_Publication_Ready_Framework.zip:
+
+  export RELEASE="$PWD/cfps_selection_research"
+  cd /path/to/htgaa-automation
+  git switch -c feat/cfps-plate-decision-framework
+
+  mkdir -p analysis/cfps_selection tools notebooks docs tests viewer
+  cp "$RELEASE/analysis/cfps_selection/decision_framework.py" analysis/cfps_selection/
+  cp "$RELEASE/analysis/cfps_selection/input_sources.py" analysis/cfps_selection/
+  cp "$RELEASE/tools/cfps_decision_cli.py" tools/
+  cp "$RELEASE/notebooks/cfps_round1_decision_framework_colab.ipynb" notebooks/
+  cp "$RELEASE/tests/test_decision_framework.py" tests/
+  cp "$RELEASE/docs/DECISION_FRAMEWORK.md" docs/
+  cp "$RELEASE/docs/PLATE_LAYOUT_EVIDENCE.md" docs/
+  cp "$RELEASE/docs/DECISION_VALIDATION.md" docs/
+  cp "$RELEASE/viewer/CFPS_Decision_Lab_Standalone.html" viewer/
+
+  mkdir -p src/routes/cfps/decision src/routes/cfps/decision-data static/cfps/decision
+  cp "$RELEASE/repo_additions/src/routes/cfps/decision/"* src/routes/cfps/decision/
+  cp "$RELEASE/repo_additions/src/routes/cfps/decision-data/"* src/routes/cfps/decision-data/
+  cp "$RELEASE/repo_additions/static/cfps/decision/"* static/cfps/decision/
+
+  # Existing source modules that the new code imports must be present:
+  #   analysis/cfps_selection/selection_framework.py
+  #   analysis/cfps_selection/__init__.py
+  #   analysis/__init__.py
+  # If not present yet, copy the other source modules from RELEASE/analysis/.
+  # Optionally merge the complete reviewed research framework:
+  #   cp -R "$RELEASE/analysis/." analysis/
+  #   cp "$RELEASE/requirements-analysis.txt" ./
+  # Existing client routing/loginHref.js, $lib/server/session.js and
+  # $lib/server/keycloak.js must match the current htgaa-automation checkout.
+
+  printf '\n/data/cfps-decision/\n/cfps_decision_private/\n*_PRIVATE.json\n*_PRIVATE.csv\n*_PRIVATE.zip\n' >> .gitignore
+  python -m pip install -r "$RELEASE/requirements-analysis.txt"
+  PYTHONPATH=. python -m pytest -q tests/test_decision_framework.py
+  node --check static/cfps/decision/decision.js
+  # If the web app uses npm scripts, execute its normal test/build:
+  # npm run check && npm run build
+
+  git status --short
+  git add analysis/cfps_selection/decision_framework.py analysis/cfps_selection/input_sources.py \
+    tools/cfps_decision_cli.py notebooks/cfps_round1_decision_framework_colab.ipynb \
+    tests/test_decision_framework.py docs/DECISION_FRAMEWORK.md \
+    docs/PLATE_LAYOUT_EVIDENCE.md docs/DECISION_VALIDATION.md \
+    viewer/CFPS_Decision_Lab_Standalone.html \
+    src/routes/cfps/decision src/routes/cfps/decision-data static/cfps/decision .gitignore
+  git diff --cached --stat
+  git diff --cached --check
+  git commit -m "feat(cfps): auditable mixed-strategy 384-well decision lab"
+  # Only after code/secret review and branch approval:
+  # git push -u origin feat/cfps-plate-decision-framework
+
+PRIVATE DATA DEPLOYMENT (DO NOT RUN INSIDE GIT TRACKED STATIC/)
+============================================================
+
+Run (from your checked-out repo, using the PRIVATE authorized source):
+  python tools/cfps_decision_cli.py \
+    --source published_snapshot \
+    --input /private/clusters_designs.json \
+    --output /private/cfps-decision/ \
+    --replicates 4 --gp-share 0.5
+
+Then provision the protected server filesystem (not the Git checkout):
+  mkdir -p data/cfps-decision
+  cp /private/cfps-decision/cfps_decision_input_private.json \
+    data/cfps-decision/cfps_decision_input_private.json
+
+Check that `data/cfps-decision/` is ignored by Git and that its server permissions
+prevent disclosure. The authorized route is `/cfps/decision` and its data API is
+`/cfps/decision-data`. Verify production auth/session integration before deploying.
+
+ALTERNATIVE LOCAL PREVIEW
+=========================
+Open viewer/CFPS_Decision_Lab_Standalone.html in a browser and use its input-file
+picker to select the PRIVATE generated cfps_decision_input_private.json.
+This local-only viewer does not need a Keycloak credential or a server.
+
+The new decision notebook is self-contained on Google Colab and exports a
+PRIVATE ZIP containing a preloaded interactive HTML preview, selected-ID plans,
+960 experimental-well assignments, provenance, warnings and private input JSON.
+
+LIMITATIONS
+===========
+- 320 experimental wells means 80 unique submitted formulations if r=4.
+- The sample plate metadata does not certify final competition rules.
+- Reconstructed independent recipe correlations are NOT equivalent to GP error
+  cluster definitions. Select 'published_designations' for original GP roles.
+- Participant batch metadata is absent from the frozen GP export; use PocketBase
+  to obtain batch_id/batch_size when available.
+- The SvelteKit route needs production repository build/auth review.
